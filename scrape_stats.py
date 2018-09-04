@@ -73,10 +73,8 @@ game_info = pd.DataFrame(base_info)
 # Game details
 def get_time(browser):
     return [time.text for time in browser.find_elements_by_xpath('//table//td[3]')]
-def get_action_type(browser, td, class_td = ''):
-    return [action.get_attribute('class') for action in browser.find_elements_by_xpath('//table//td[' + str(td) + '][contains(@class, "-icon")]//span')]
-def get_info(browser, td, class_td = ''):
-    return [info.text for info in browser.find_elements_by_xpath('//table//td[' + str(td) + '][contains(@class, ' + class_td + ')]')]
+def get_description(browser, td, class_td = ''):
+    return [description.text for description in browser.find_elements_by_xpath('//table//td[' + str(td) + '][contains(@class, ' + class_td + ')]')]
 
 game_details = pd.DataFrame()
 for game in game_link:
@@ -86,21 +84,75 @@ for game in game_link:
     date = {'date': re.search("([0-9]{2}\.[0-9]{2}\.[0-9]{4})", date).group(1)}
     position = browser.find_elements_by_xpath('//table//tr//th[contains(text(), "' + team + '")]')[0].get_attribute('class')
     if position == '':
-        info_td = 5
+        description_td = 5
         class_td = '""'
     else:
-        info_td = 1
+        description_td = 1
         class_td = '"' + position + '"'
     time = {'time': get_time(browser)}
-    info = {'info': get_info(browser, info_td, class_td = class_td)}
-    game_details_temp = pd.DataFrame({**date, **time, **info})
-    game_details_temp = game_details_temp.loc[game_details_temp['info'] != '']
+    description = {'description': get_description(browser, description_td, class_td = class_td)}
+    game_details_temp = pd.DataFrame({**date, **time, **description})
+    game_details_temp = game_details_temp.loc[game_details_temp['description'] != '']
     game_details = game_details.append(game_details_temp)
 
 # Merging by date
 stats = game_details.merge(game_info, how = 'left', on = 'date')
 
 # Cleaning - Regex to clean info
+def get_penalty_time(string):
+    try:
+        time = int(re.search('[0-9]{1,2}', re.search('[0-9]{1,2} Min', string).group(0)).group(0))
+    except AttributeError:
+        time = 0
+    return time
+stats['penalty'] = [get_penalty_time(penalty_time) for penalty_time in stats.description]
 
+def get_action(string):
+    try:
+        re.search('[0-9]{1,2} Min', string).group(0)
+        action = 'penalty'
+    except AttributeError:
+        try:
+            re.search('[0-9]{1,2}\:[0-9]{1,2}', string).group(0)
+            action = 'goal'
+        except AttributeError:
+            action = 'goalie_change'
+    return action
+stats['action'] = [get_action(action) for action in stats.description]
 
-# id (cpm_opponent_date), cpm, opponent, date, home, time, action (penalty, score, assist), player, min, cpm_score, team_score
+def get_player(string, penalty):
+    try:
+        player = string.split(" - ")[1].split("(")[0].strip()
+        try:
+            assist = string.split("\n")[1].split(",")
+            assist = [p.split("(")[0].strip() for p in assist]
+        except IndexError:
+            assist = ['']
+    except IndexError:
+        player = string.split("(")[0].strip()
+        assist = ['']
+    return player, assist
+stats['player'] = [get_player(string, penalty)[0] for string, penalty in zip(stats.description, stats.penalty)]
+
+assist = pd.DataFrame(stats[['date', 'time']])
+assist['assists'] = [get_player(string, penalty)[1] for string, penalty in zip(stats.description, stats.penalty)]
+assist[['assist_1', 'assist_2']] = pd.DataFrame(assist.assists.tolist())
+assist = assist.drop('assists', axis = 1)
+assist = assist.melt(id_vars = ['date', 'time'], var_name = "action", value_name = "player")
+assist.loc[assist.player == '', 'player'] = None
+assist = assist.loc[assist.player.notnull()]
+assist = assist.merge(stats.loc[stats.penalty == 0, ['date', 'time', 'description', 'team', 'opponent', 'home', 'penalty']], how = 'left', on = ['date', 'time'], sort = False)
+stats = stats.append(assist, ignore_index = True)[assist.columns.tolist()]
+
+stats['date'] = pd.to_datetime(stats.date)
+# cpm_score
+
+# team_score
+
+# create assist dataframe
+# append assist
+# order stats by date, time
+
+# create id
+
+# id (cpm_opponent_date), cpm, opponent, date, home, time, action (penalty, score, assist, goalie_change), player, min, cpm_score, team_score

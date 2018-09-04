@@ -144,15 +144,27 @@ assist = assist.loc[assist.player.notnull()]
 assist = assist.merge(stats.loc[stats.penalty == 0, ['date', 'time', 'description', 'team', 'opponent', 'home', 'penalty']], how = 'left', on = ['date', 'time'], sort = False)
 stats = stats.append(assist, ignore_index = True)[assist.columns.tolist()]
 
-stats['date'] = pd.to_datetime(stats.date)
-# cpm_score
+stats['date'] = pd.to_datetime(stats.date, format = '%d.%m.%Y')
+stats = stats.sort_values(['date', 'time'])
+stats['date'] = stats['date'].dt.strftime('%d.%m.%Y')
 
-# team_score
+def get_cpm_score(string, home):
+    if home == 0:
+        cpm_score = re.search('[0-9]{1,2}\:[0-9]{1,2}', string).group(0).split(":")[1]
+    else:
+        cpm_score = re.search('[0-9]{1,2}\:[0-9]{1,2}', string).group(0).split(":")[0]
+    return cpm_score
+stats['cpm_score'] = np.nan
+stats.loc[stats.action.isin(['goal', 'assist_1', 'assist_2']), 'cpm_score'] = [get_cpm_score(string, home) for string, home, in zip(stats.loc[stats.action.isin(['goal', 'assist_1', 'assist_2']), 'description'], stats.loc[stats.action.isin(['goal', 'assist_1', 'assist_2']), 'home'])]
 
-# create assist dataframe
-# append assist
-# order stats by date, time
+def get_opponent_score(string, home):
+    if home == 0:
+        opponent_score = re.search('[0-9]{1,2}\:[0-9]{1,2}', string).group(0).split(":")[0]
+    else:
+        opponent_score = re.search('[0-9]{1,2}\:[0-9]{1,2}', string).group(0).split(":")[1]
+    return opponent_score
+stats['opponent_score'] = np.nan
+stats.loc[stats.action.isin(['goal', 'assist_1', 'assist_2']), 'opponent_score'] = [get_opponent_score(string, home) for string, home, in zip(stats.loc[stats.action.isin(['goal', 'assist_1', 'assist_2']), 'description'], stats.loc[stats.action.isin(['goal', 'assist_1', 'assist_2']), 'home'])]
 
+# add cpm_final_score and opponent_final_score
 # create id
-
-# id (cpm_opponent_date), cpm, opponent, date, home, time, action (penalty, score, assist, goalie_change), player, min, cpm_score, team_score
